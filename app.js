@@ -9,7 +9,4 @@ app.use(express.urlencoded({ extended: false }));
 
 app.use('/', require('./routes/index'));
 
-// serve static files from public-folder
-app.use(express.static('public'));
-
 module.exports = app;
