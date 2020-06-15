@@ -15,7 +15,8 @@ const rooms = [
 	// 	rounds: [
 	// 		{
 	// 			readyPlayer: 0,
-	// 			time: {
+	// 			startTime: 0,
+	// 			times: {
 	// 				player1: "00:01.412",
 	// 				player2: "00:01.413"
 	// 			}
@@ -37,7 +38,7 @@ function handleUserRegistration(username, callback) {
 	waitingForOpponent.push(this)
 
 	// Callback indicating registration to client
-	callback("User registered");
+	callback({ id: this.id, name: username });
 	
 	// Broadcast to all connected sockets EXCEPT ourselves
 	this.broadcast.emit('new-user-connected', username);
@@ -52,10 +53,8 @@ function handleUserRegistration(username, callback) {
 			rounds: [
 				{
 					readyPlayer: 2,
-					time: {
-						player1: "00:01.412",
-						player2: "00:01.413"
-					}
+					startTime: 0,
+					times: {},
 				},
 			]
 		});
@@ -64,6 +63,7 @@ function handleUserRegistration(username, callback) {
 		waitingForOpponent.forEach(socket => {
 			socket.join(rooms.length - 1)
 			rooms[rooms.length - 1].players[socket.id] = socket.username;
+			// rooms[rooms.length - 1].rounds[0].times[socket.id] = null;
 		});
 
 		// Tell client an opponent was found and return the room beings used to play in
@@ -84,15 +84,15 @@ function handleUserRegistration(username, callback) {
  */
 function startNewRound(data) {
 	const { room, countdown } = data;
-	const round = rooms[room].rounds.length - 1;
+	const roundNr = rooms[room].rounds.length - 1;
 	
 	console.log("new round");
-	
+
 	// Mark one player as ready
-	// rooms[room].rounds[round].readyPlayer++;
+	// rooms[room].rounds[roundNR].readyPlayer++;
 
 	// Check if both players are ready
-	if(rooms[room].rounds[round ].readyPlayer >= 2) {
+	if(rooms[room].rounds[roundNr].readyPlayer >= 2) {
 
 		// Calc random delay to show virus icon
 		const randomTarget = Math.floor(Math.random() * 5) + 1;
@@ -110,9 +110,14 @@ function startNewRound(data) {
 			else if(counter >= randomTarget + countdown) {
 				clearInterval(counterId);
 				
+				// Save time virus was displayed and sent
+				const startTime = new Date().getTime();
+				rooms[room].rounds[roundNr].startTime = startTime;
+
 				io.in(room).emit('display-virus', {
 					top: Math.floor(Math.random() * 100),
 					left: Math.floor(Math.random() * 100),
+					startTime,
 				})
 
 				console.log("virus icon to be displayed")
@@ -120,6 +125,26 @@ function startNewRound(data) {
 			counter++;
 		}, 1000);
 	}
+}
+
+/**
+ * Handle user clicking virus
+ */
+function handleClickVirus(data) {
+	const { clickTime, room } = data;
+
+	const roundNr = rooms[room].rounds.length - 1;
+	const round = rooms[room].rounds[roundNr];
+
+	console.log(`start at ${round.startTime}`);
+	console.log(`virus clicked at ${clickTime}`);
+	console.log(`virus clicked after ${clickTime - round.startTime} milliseconds`);
+
+	const time = clickTime - round.startTime
+
+	// Save time it took to click vurs and update all rooms 
+	round.times[this.id] = time;
+	io.in(room).emit('scoreboard-update', { round: roundNr, times: round.times })
 }
 
 /**
@@ -146,4 +171,6 @@ module.exports = function(socket) {
 
 	socket.on('disconnect', handleUserDisconnect);
 	socket.on('user-register', handleUserRegistration);
+
+	socket.on('click-virus', handleClickVirus);
 }
