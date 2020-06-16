@@ -28,11 +28,40 @@ const rooms = [
 	// },
 ];
 
+
+/**
+ * Validate username
+ * Return false if no error
+ */
+function validateUsername(username) {
+	let error = false;
+	let usernameRegEx = /^[a-z0-9]+$/i;
+
+    if (username == "") {
+        error = "Please enter a username";
+    } else if ( (username.length < 2) || (username.length > 10) ) {
+        error = "Username must have 2-10 characters";
+    } else if ( !usernameRegEx.test(username) ) {
+        error = "Invalid username, use only letters and numbers";
+    } else {
+        error = "";
+    }
+    return error;
+}
+
 /**
  * Handle a new user connecting
  */
 function handleUserRegistration(username, callback) {
     debug("User '%s' connected to the chat", username);
+
+	// Check if username failed validation
+	const validationErr = validateUsername(username)
+	if(validateUsername(username)) {
+		debug("User '%s' failed validation: %s", username, validationErr);
+		callback({ error: validationErr });
+		return;
+	}
 
 	// Save username to socket and mark socket as waiting for opponent
 	this.username = username;
