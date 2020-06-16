@@ -17,6 +17,7 @@ const rooms = [
 	// 	},
 	// 	rounds: [
 	// 		{
+	// 			counterId: [],
 	// 			startTime: 0,
 	// 			times: {
 	// 				player1: "00:01.412",
@@ -113,6 +114,7 @@ function startNewRound(data) {
 	
 	// Add starting data for new round
 	rooms[room].rounds.push({
+		counterId: [],
 		startTime: 0,
 		times: {},
 	});
@@ -129,15 +131,15 @@ function startNewRound(data) {
 	// Send virus cordinates after a random time
 	let counter = 0;
 	const counterId = setInterval(() => {
+		// Save counterId to clearInterval at a later stage
+		rooms[room].rounds[roundNr].counterId.push(counterId);
 		
 		// Send countdown to client 
 		if(counter <= countdown) {
 			io.in(room).emit('countdown', countdown - counter);
 		}
 		// Wait for random delay before sending vrius cordinates to clients
-		else if(counter >= randomTarget + countdown) {
-			clearInterval(counterId);
-			
+		else if(counter === randomTarget + countdown) {
 			// Save time virus was displayed and sent
 			const startTime = new Date().getTime();
 			rooms[room].rounds[roundNr].startTime = startTime;
@@ -148,10 +150,41 @@ function startNewRound(data) {
 				startTime,
 			});
 		}
+		// Conced round if no response after 10seconds 
+		else if(counter === randomTarget + countdown + 10) {
+			clearRoundCounter(room, roundNr);
+			handleRoundTimeOut(room, roundNr);
+		}
 		counter++;
 	}, 1000);
 	
 }
+
+/**
+ * Clear the rounds two counters
+ */
+function clearRoundCounter(room, roundNr) {
+	rooms[room].rounds[roundNr].counterId.forEach(id => clearInterval(id));
+}
+
+/**
+ * Handle round timing out
+ */
+function handleRoundTimeOut(room, roundNr) {
+	const round = rooms[room].rounds[roundNr];
+
+	Object.keys(rooms[room].players).forEach(id => {
+		if(!round.times[id]) round.times[id] = 10000;
+		debug("Round timed out after 10sec for: %s,", id);
+	});
+
+	// Update all players with scoreboard
+	io.in(room).emit('scoreboard-update', round.times);
+
+	// Handle winner if both player have clicked virus icon
+	if(Object.values(round.times).length === 2) handleRoundWinner(room);
+}
+
 
 /**
  * Handle user clicking virus
@@ -169,7 +202,10 @@ function handleClickVirus(data) {
 	io.in(room).emit('scoreboard-update', round.times);
 
 	// Handle winner if both player have clicked virus icon
-	if(Object.values(round.times).length === 2) handleRoundWinner(room);
+	if(Object.values(round.times).length === 2) {
+		clearRoundCounter(room, roundNr);
+		handleRoundWinner(room);
+	}
 }
 
 /**
@@ -180,8 +216,18 @@ function handleRoundWinner(room) {
 	const round = rooms[room].rounds[roundNr];
 
 	// Calc lowest time and save it to data and update score than tell users
-	round.winner = Object.keys(round.times).reduce((time, id) => round.times[id] < time ? round.times[id] : time);
-	rooms[room].scores[round.winner]++;
+	// Null if a draw occurred
+	if(Object.values(round.times)[0] === Object.values(round.times)[1]) {
+		round.winner = null;
+	} else if(Object.values(round.times)[0] < Object.values(round.times)[1]) {
+		const playerId = Object.keys(round.times)[0];
+		round.winner = playerId;
+		rooms[room].scores[playerId]++;
+	} else {
+		const playerId = Object.keys(round.times)[1];
+		round.winner = playerId;
+		rooms[room].scores[playerId]++;
+	}
 	io.in(room).emit('round-winner', { winner: round.winner, scores: rooms[room].scores });
 
 	// Check if it was the final round 
