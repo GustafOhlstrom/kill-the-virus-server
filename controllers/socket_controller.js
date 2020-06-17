@@ -11,6 +11,7 @@ const rooms = [
 	// {
 	// 	name: 1,
 	// 	players: {},
+	// 	surrender: false,
 	// 	scores: {
 	// 		player1: 3,
 	// 		player2: 1,
@@ -83,6 +84,7 @@ function startNewGame() {
 	rooms.push({
 		name: rooms.length,
 		players: {},
+		surrender: false,
 		rounds: [],
 		scores: {}
 	});
@@ -103,7 +105,7 @@ function startNewGame() {
 	waitingForOpponent = [];
 
 	// Start first round
-	startNewRound({ room: rooms[rooms.length - 1].name, countdown: 2 });
+	if(!rooms[rooms.length - 1].surrender) startNewRound({ room: rooms[rooms.length - 1].name, countdown: 2 });
 }
 
 /**
@@ -123,7 +125,7 @@ function startNewRound(data) {
 	debug("New round '%s' for room '%s'", roundNr, room);
 
 	// Send new round to players
-	io.in(room).emit('newRound', roundNr);
+	if(!rooms[room].surrender) io.in(room).emit('newRound', roundNr);
 
 	// Calc random delay to show virus icon
 	const randomTarget = Math.floor(Math.random() * 5) + 1;
@@ -132,11 +134,11 @@ function startNewRound(data) {
 	let counter = 0;
 	const counterId = setInterval(() => {
 		// Save counterId to clearInterval at a later stage
-		rooms[room].rounds[roundNr].counterId.push(counterId);
+		if(counter === 0) rooms[room].rounds[roundNr].counterId.push(counterId);
 		
 		// Send countdown to client 
 		if(counter <= countdown) {
-			io.in(room).emit('countdown', countdown - counter);
+			if(!rooms[room].surrender) io.in(room).emit('countdown', countdown - counter);
 		}
 		// Wait for random delay before sending vrius cordinates to clients
 		else if(counter === randomTarget + countdown) {
@@ -144,16 +146,18 @@ function startNewRound(data) {
 			const startTime = new Date().getTime();
 			rooms[room].rounds[roundNr].startTime = startTime;
 
-			io.in(room).emit('display-virus', {
-				top: Math.floor(Math.random() * 100),
-				left: Math.floor(Math.random() * 100),
-				startTime,
-			});
+			if(!rooms[room].surrender) {
+				io.in(room).emit('display-virus', {
+					top: Math.floor(Math.random() * 100),
+					left: Math.floor(Math.random() * 100),
+					startTime,
+				});
+			}
 		}
 		// Conced round if no response after 10seconds 
 		else if(counter === randomTarget + countdown + 10) {
 			clearRoundCounter(room, roundNr);
-			handleRoundTimeOut(room, roundNr);
+			if(!rooms[room].surrender) handleRoundTimeOut(room, roundNr);
 		}
 		counter++;
 	}, 1000);
@@ -179,7 +183,7 @@ function handleRoundTimeOut(room, roundNr) {
 	});
 
 	// Update all players with scoreboard
-	io.in(room).emit('scoreboard-update', round.times);
+	if(!rooms[room].surrender) io.in(room).emit('scoreboard-update', round.times);
 
 	// Handle winner if both player have clicked virus icon
 	if(Object.values(round.times).length === 2) handleRoundWinner(room);
@@ -199,12 +203,12 @@ function handleClickVirus(data) {
 
 	// Save time it took to click vurs and update all rooms 
 	round.times[this.id] = time;
-	io.in(room).emit('scoreboard-update', round.times);
+	if(!rooms[room].surrender) io.in(room).emit('scoreboard-update', round.times);
 
 	// Handle winner if both player have clicked virus icon
 	if(Object.values(round.times).length === 2) {
 		clearRoundCounter(room, roundNr);
-		handleRoundWinner(room);
+		if(!rooms[room].surrender) handleRoundWinner(room);
 	}
 }
 
@@ -228,7 +232,7 @@ function handleRoundWinner(room) {
 		round.winner = playerId;
 		rooms[room].scores[playerId]++;
 	}
-	io.in(room).emit('round-winner', { winner: round.winner, scores: rooms[room].scores });
+	if(!rooms[room].surrender) io.in(room).emit('round-winner', { winner: round.winner, scores: rooms[room].scores });
 
 	// Check if it was the final round 
 	if(rooms[room].rounds.length === 2) {
@@ -243,7 +247,7 @@ function handleRoundWinner(room) {
 		}
 		
 		// let winner = Object.keys(rooms[room].scores).reduce((score, id) => rooms[room].scores[id] > score ? rooms[room].scores[id] : score) 
-		io.in(room).emit('winner', winner);
+		if(!rooms[room].surrender) io.in(room).emit('winner', winner);
 		return;
 	}
 
@@ -252,10 +256,23 @@ function handleRoundWinner(room) {
 	const delayId = setInterval(() => {
 		if(sec === 2) {
 			clearInterval(delayId);
-			startNewRound({ room, countdown: 2 });
+			if(!rooms[room].surrender)  startNewRound({ room, countdown: 2 });
 		}
 		sec++;
 	}, 1000);
+}
+
+/**
+ * Surrender game
+ */
+function surrenderGame(room, id) {
+	// Mark room as surrender to stop all opperations currently taking place
+	room.surrender = true;
+	debug(`User: '%s' surrendered game in room %s`, id, room);
+
+	// Clear counters and tell player left that they won
+	clearRoundCounter(room.name, room.rounds.length - 1);
+	io.in(room.name).emit('surrender', Object.keys(room.players).find(player => player !== id));
 }
 
 /**
@@ -263,7 +280,13 @@ function handleRoundWinner(room) {
  */
 function handleUserDisconnect() {
     debug(`User: '%s' with socket %s disconnected`, this.username, this.id);
+	
+	// Find rooms player disconnected from
+	const disconnectedRoom = rooms.find(room => room.players.hasOwnProperty(this.id));
+
+	// Surrender games in rooms and delete player from waiting for opponent
 	delete waitingForOpponent[this.id];
+	if(disconnectedRoom) surrenderGame(disconnectedRoom, this.id);
 }
 
 module.exports = function(socket) {
