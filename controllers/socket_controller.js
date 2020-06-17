@@ -260,7 +260,7 @@ function startNewRound(data) {
 
 	// Send new round to players
 	if(!rooms[roomName].winner) {
-		io.in(roomName).emit('newRound', roundNr);
+		io.in(roomName).emit('new-round', roundNr);
 	}
 
 	// Calc random delay to show virus icon
