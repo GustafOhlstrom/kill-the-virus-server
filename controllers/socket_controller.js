@@ -11,7 +11,7 @@ const rooms = [
 	// {
 	// 	name: 1,
 	// 	players: {},
-	// 	surrender: false,
+	// 	winner: false,
 	// 	scores: {
 	// 		player1: 3,
 	// 		player2: 1,
@@ -77,55 +77,57 @@ function handleUserRegistration(username, callback) {
 }
 
 /**
- * Start new game with private room
+ * Start new game with private roomName
  */
 function startNewGame() {
-	// Save new room with base data
+	const roomName = rooms.length
+
+	// Save new roomName with base data
 	rooms.push({
-		name: rooms.length,
+		name: roomName,
 		players: {},
-		surrender: false,
+		winner: null,
 		rounds: [],
 		scores: {}
 	});
 
-	// Two first players join the new room 
-	// Two first players are saved with the score 0 to the new room in rooms array
+	// Two first players join the new roomName 
+	// Two first players are saved with the score 0 to the new roomName in rooms array
 	const playerSockets = waitingForOpponent.splice(0,2);
 	playerSockets.forEach(socket => {
-		socket.join(rooms.length - 1);
-		rooms[rooms.length - 1].players[socket.id] = socket.username;
-		rooms[rooms.length - 1].scores[socket.id] = 0;
+		socket.join(roomName);
+		rooms[roomName].players[socket.id] = socket.username;
+		rooms[roomName].scores[socket.id] = 0;
 	});
 
-	// Tell client an opponent was found and return the room beings used to play in
-	io.in(rooms.length - 1).emit('opponent-found',  rooms[rooms.length - 1]);
+	// Tell client an opponent was found and return the roomName beings used to play in
+	io.in(roomName).emit('opponent-found',  rooms[roomName]);
 
 	// Clear waitingForOpponent
 	waitingForOpponent = [];
 
 	// Start first round
-	if(!rooms[rooms.length - 1].surrender) startNewRound({ room: rooms[rooms.length - 1].name, countdown: 2 });
+	if(!rooms[roomName].winner) startNewRound({ roomName, countdown: 2 });
 }
 
 /**
  * Start new round
  */
 function startNewRound(data) {
-	const { room, countdown } = data;
+	const { roomName, countdown } = data;
 	
 	// Add starting data for new round
-	rooms[room].rounds.push({
+	rooms[roomName].rounds.push({
 		counterId: [],
 		startTime: 0,
 		times: {},
 	});
 
-	let roundNr = rooms[room].rounds.length - 1;
-	debug("New round '%s' for room '%s'", roundNr, room);
+	let roundNr = rooms[roomName].rounds.length - 1;
+	debug("New round '%s' for roomName '%s'", roundNr, roomName);
 
 	// Send new round to players
-	if(!rooms[room].surrender) io.in(room).emit('newRound', roundNr);
+	if(!rooms[roomName].winner) io.in(roomName).emit('newRound', roundNr);
 
 	// Calc random delay to show virus icon
 	const randomTarget = Math.floor(Math.random() * 5) + 1;
@@ -134,20 +136,20 @@ function startNewRound(data) {
 	let counter = 0;
 	const counterId = setInterval(() => {
 		// Save counterId to clearInterval at a later stage
-		if(counter === 0) rooms[room].rounds[roundNr].counterId.push(counterId);
+		if(counter === 0) rooms[roomName].rounds[roundNr].counterId.push(counterId);
 		
 		// Send countdown to client 
 		if(counter <= countdown) {
-			if(!rooms[room].surrender) io.in(room).emit('countdown', countdown - counter);
+			if(!rooms[roomName].winner) io.in(roomName).emit('countdown', countdown - counter);
 		}
 		// Wait for random delay before sending vrius cordinates to clients
 		else if(counter === randomTarget + countdown) {
 			// Save time virus was displayed and sent
 			const startTime = new Date().getTime();
-			rooms[room].rounds[roundNr].startTime = startTime;
+			rooms[roomName].rounds[roundNr].startTime = startTime;
 
-			if(!rooms[room].surrender) {
-				io.in(room).emit('display-virus', {
+			if(!rooms[roomName].winner) {
+				io.in(roomName).emit('display-virus', {
 					top: Math.floor(Math.random() * 100),
 					left: Math.floor(Math.random() * 100),
 					startTime,
@@ -156,8 +158,8 @@ function startNewRound(data) {
 		}
 		// Conced round if no response after 10seconds 
 		else if(counter === randomTarget + countdown + 10) {
-			clearRoundCounter(room, roundNr);
-			if(!rooms[room].surrender) handleRoundTimeOut(room, roundNr);
+			clearRoundCounter(roomName, roundNr);
+			if(!rooms[roomName].winner) handleRoundTimeOut(roomName, roundNr);
 		}
 		counter++;
 	}, 1000);
@@ -167,26 +169,26 @@ function startNewRound(data) {
 /**
  * Clear the rounds two counters
  */
-function clearRoundCounter(room, roundNr) {
-	rooms[room].rounds[roundNr].counterId.forEach(id => clearInterval(id));
+function clearRoundCounter(roomName, roundNr) {
+	rooms[roomName].rounds[roundNr].counterId.forEach(id => clearInterval(id));
 }
 
 /**
  * Handle round timing out
  */
-function handleRoundTimeOut(room, roundNr) {
-	const round = rooms[room].rounds[roundNr];
+function handleRoundTimeOut(roomName, roundNr) {
+	const round = rooms[roomName].rounds[roundNr];
 
-	Object.keys(rooms[room].players).forEach(id => {
+	Object.keys(rooms[roomName].players).forEach(id => {
 		if(!round.times[id]) round.times[id] = 10000;
 		debug("Round timed out after 10sec for: %s,", id);
 	});
 
 	// Update all players with scoreboard
-	if(!rooms[room].surrender) io.in(room).emit('scoreboard-update', round.times);
+	if(!rooms[roomName].winner) io.in(roomName).emit('scoreboard-update', round.times);
 
 	// Handle winner if both player have clicked virus icon
-	if(Object.values(round.times).length === 2) handleRoundWinner(room);
+	if(Object.values(round.times).length === 2) handleRoundWinner(roomName);
 }
 
 
@@ -194,30 +196,30 @@ function handleRoundTimeOut(room, roundNr) {
  * Handle user clicking virus
  */
 function handleClickVirus(data) {
-	const { clickTime, room } = data;
-	const roundNr = rooms[room].rounds.length - 1;
-	const round = rooms[room].rounds[roundNr];
+	const { clickTime, roomName } = data;
+	const roundNr = rooms[roomName].rounds.length - 1;
+	const round = rooms[roomName].rounds[roundNr];
 	const time = clickTime - round.startTime;
 
 	debug("Virus clicked after %s milliseconds by user '%s'", clickTime - round.startTime, this.username);
 
 	// Save time it took to click vurs and update all rooms 
 	round.times[this.id] = time;
-	if(!rooms[room].surrender) io.in(room).emit('scoreboard-update', round.times);
+	if(!rooms[roomName].winner) io.in(roomName).emit('scoreboard-update', round.times);
 
 	// Handle winner if both player have clicked virus icon
 	if(Object.values(round.times).length === 2) {
-		clearRoundCounter(room, roundNr);
-		if(!rooms[room].surrender) handleRoundWinner(room);
+		clearRoundCounter(roomName, roundNr);
+		if(!rooms[roomName].winner) handleRoundWinner(roomName);
 	}
 }
 
 /**
  * Handle round winner
  */
-function handleRoundWinner(room) {
-	const roundNr = rooms[room].rounds.length - 1;
-	const round = rooms[room].rounds[roundNr];
+function handleRoundWinner(roomName) {
+	const roundNr = rooms[roomName].rounds.length - 1;
+	const round = rooms[roomName].rounds[roundNr];
 
 	// Calc lowest time and save it to data and update score than tell users
 	// Null if a draw occurred
@@ -226,28 +228,31 @@ function handleRoundWinner(room) {
 	} else if(Object.values(round.times)[0] < Object.values(round.times)[1]) {
 		const playerId = Object.keys(round.times)[0];
 		round.winner = playerId;
-		rooms[room].scores[playerId]++;
+		rooms[roomName].scores[playerId]++;
 	} else {
 		const playerId = Object.keys(round.times)[1];
 		round.winner = playerId;
-		rooms[room].scores[playerId]++;
+		rooms[roomName].scores[playerId]++;
 	}
-	if(!rooms[room].surrender) io.in(room).emit('round-winner', { winner: round.winner, scores: rooms[room].scores });
+	if(!rooms[roomName].winner) io.in(roomName).emit('round-winner', { winner: round.winner, scores: rooms[roomName].scores });
 
 	// Check if it was the final round 
-	if(rooms[room].rounds.length === 2) {
+	if(rooms[roomName].rounds.length === 2) {
 		// Calc most wins and send to players
 		let winner;
-		if(Object.values(rooms[room].scores)[0] === Object.values(rooms[room].scores)[1]) {
+		if(Object.values(rooms[roomName].scores)[0] === Object.values(rooms[roomName].scores)[1]) {
 			winner = "Draw";
-		} else if(Object.values(rooms[room].scores)[0] > Object.values(rooms[room].scores)[1]) {
-			winner = Object.keys(rooms[room].scores)[0];
+		} else if(Object.values(rooms[roomName].scores)[0] > Object.values(rooms[roomName].scores)[1]) {
+			winner = Object.keys(rooms[roomName].scores)[0];
 		} else {
-			winner = Object.keys(rooms[room].scores)[1];
+			winner = Object.keys(rooms[roomName].scores)[1];
 		}
 		
-		// let winner = Object.keys(rooms[room].scores).reduce((score, id) => rooms[room].scores[id] > score ? rooms[room].scores[id] : score) 
-		if(!rooms[room].surrender) io.in(room).emit('winner', winner);
+		// Set winner and inform players
+		if(!rooms[roomName].winner) {
+			rooms[roomName].winner = winner;
+			io.in(roomName).emit('winner', winner);
+		}
 		return;
 	}
 
@@ -256,7 +261,7 @@ function handleRoundWinner(room) {
 	const delayId = setInterval(() => {
 		if(sec === 2) {
 			clearInterval(delayId);
-			if(!rooms[room].surrender)  startNewRound({ room, countdown: 2 });
+			if(!rooms[roomName].winner)  startNewRound({ roomName, countdown: 2 });
 		}
 		sec++;
 	}, 1000);
@@ -266,13 +271,13 @@ function handleRoundWinner(room) {
  * Surrender game
  */
 function surrenderGame(room, id) {
-	// Mark room as surrender to stop all opperations currently taking place
-	room.surrender = true;
-	debug(`User: '%s' surrendered game in room %s`, id, room);
+	// Set winner this will also stop all opperations currently taking place
+	room.winner = Object.keys(room.players).find(player => player !== id);
+	debug(`User: '%s' surrendered game in roomName %s`, id, room);
 
 	// Clear counters and tell player left that they won
 	clearRoundCounter(room.name, room.rounds.length - 1);
-	io.in(room.name).emit('surrender', Object.keys(room.players).find(player => player !== id));
+	io.in(room.name).emit('surrender', room.winner);
 }
 
 /**
@@ -286,7 +291,7 @@ function handleUserDisconnect() {
 
 	// Surrender games in rooms and delete player from waiting for opponent
 	delete waitingForOpponent[this.id];
-	if(disconnectedRoom) surrenderGame(disconnectedRoom, this.id);
+	if(disconnectedRoom && ! disconnectedRoom.winner) surrenderGame(disconnectedRoom, this.id);
 }
 
 module.exports = function(socket) {
