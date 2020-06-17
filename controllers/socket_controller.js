@@ -32,23 +32,150 @@ const rooms = [
 
 
 /**
- * Validate username
- * Return false if no error
+ * Clear the rounds two counters
  */
-function validateUsername(username) {
-	let error = false;
-	let usernameRegEx = /^[a-z0-9]+$/i;
+function clearRoundCounter(roomName, roundNr) {
+	getRound(roomName, roundNr).counterId.forEach(id => clearInterval(id));
+}
 
-    if (username == "") {
-        error = "Please enter a username";
-    } else if ( (username.length < 2) || (username.length > 10) ) {
-        error = "Username must have 2-10 characters";
-    } else if ( !usernameRegEx.test(username) ) {
-        error = "Invalid username, use only letters and numbers";
-    } else {
-        error = "";
-    }
-    return error;
+/**
+ * Get the current round being played in the room
+ */
+function getCurrentRoundNr(roomName) {
+	return rooms[roomName].rounds.length - 1;
+}
+
+/**
+ * Get the round object itself with roomName and roundNr
+ */
+function getRound(roomName, roundNr) {
+	return rooms[roomName].rounds[roundNr];
+}
+
+/**
+ * Handle user clicking virus
+ */
+function handleClickVirus(data) {
+	const { clickTime, roomName } = data;
+	const roundNr = getCurrentRoundNr(roomName);
+	const round = getRound(roomName, roundNr);
+	const time = clickTime - round.startTime;
+
+	debug("Virus clicked after %s milliseconds by user '%s'", clickTime - round.startTime, this.username);
+
+	// Save time it took to click vurs and update all rooms 
+	round.times[this.id] = time;
+	if(!rooms[roomName].winner) {
+		io.in(roomName).emit('scoreboard-update', round.times);
+	}
+
+	// Handle winner if both player have clicked virus icon
+	if(Object.values(round.times).length === 2) {
+		clearRoundCounter(roomName, roundNr);
+		if(!rooms[roomName].winner) {
+			handleRoundWinner(roomName);
+		}
+	}
+}
+
+/**
+ * Handle round timing out
+ */
+function handleRoundTimeOut(roomName, roundNr) {
+	const round = getRound(roomName, roundNr);
+
+	// Save timed out time for player
+	Object.keys(rooms[roomName].players).forEach(id => {
+		if(!round.times[id]) {
+			round.times[id] = 10000;
+		}
+		debug("Round timed out after 10sec for: %s,", id);
+	});
+
+	// Update all players with scoreboard
+	if(!rooms[roomName].winner) {
+		io.in(roomName).emit('scoreboard-update', round.times);
+	}
+
+	// Handle winner if both player have clicked virus icon
+	if(Object.values(round.times).length === 2) {
+		handleRoundWinner(roomName);
+	}
+}
+
+/**
+ * Handle round winner
+ */
+function handleRoundWinner(roomName) {
+	const roundNr = getCurrentRoundNr(roomName);
+	const round = getRound(roomName, roundNr);
+
+	// Calc lowest time and save it to data
+	// Null if a draw occurred
+	if(Object.values(round.times)[0] === Object.values(round.times)[1]) {
+		round.winner = null;
+	} else if(Object.values(round.times)[0] < Object.values(round.times)[1]) {
+		const playerId = Object.keys(round.times)[0];
+		round.winner = playerId;
+		rooms[roomName].scores[playerId]++;
+	} else {
+		const playerId = Object.keys(round.times)[1];
+		round.winner = playerId;
+		rooms[roomName].scores[playerId]++;
+	}
+
+	// Update player with the winner and the scores
+	if(!rooms[roomName].winner) {
+		io.in(roomName).emit('round-winner', { winner: round.winner, scores: rooms[roomName].scores });
+	}
+
+	// Check if it was the final round
+	if(roundNr + 1 === 2) {
+		// Calc most wins and send to players
+		let winner;
+		if(Object.values(rooms[roomName].scores)[0] === Object.values(rooms[roomName].scores)[1]) {
+			winner = "Draw";
+		} else if(Object.values(rooms[roomName].scores)[0] > Object.values(rooms[roomName].scores)[1]) {
+			winner = Object.keys(rooms[roomName].scores)[0];
+		} else {
+			winner = Object.keys(rooms[roomName].scores)[1];
+		}
+		
+		// Set winner and inform players
+		if(!rooms[roomName].winner) {
+			rooms[roomName].winner = winner;
+			io.in(roomName).emit('winner', winner);
+		}
+		return;
+	}
+
+	// Delay 2 seconds before starting next round
+	let sec = 0;
+	const delayId = setInterval(() => {
+		if(sec === 2) {
+			clearInterval(delayId);
+			if(!rooms[roomName].winner) {
+				startNewRound({ roomName, countdown: 2 });
+			}
+		}
+		sec++;
+	}, 1000);
+}
+
+/**
+ * Handle user disconnecting
+ */
+function handleUserDisconnect() {
+    debug(`User: '%s' with socket %s disconnected`, this.username, this.id);
+	
+	// Find rooms player disconnected from
+	const disconnectedRoom = rooms.find(room => room.players.hasOwnProperty(this.id));
+
+	// Surrender games in rooms and delete player from waiting for opponent
+	delete waitingForOpponent[this.id];
+	if(disconnectedRoom && ! disconnectedRoom.winner) {
+		surrenderGame(disconnectedRoom, this.id);
+	}
 }
 
 /**
@@ -174,138 +301,6 @@ function startNewRound(data) {
 		}
 		counter++;
 	}, 1000);
-	
-}
-
-/**
- * Clear the rounds two counters
- */
-function clearRoundCounter(roomName, roundNr) {
-	getRound(roomName, roundNr).counterId.forEach(id => clearInterval(id));
-}
-
-/**
- * Handle round timing out
- */
-function handleRoundTimeOut(roomName, roundNr) {
-	const round = getRound(roomName, roundNr);
-
-	// Save timed out time for player
-	Object.keys(rooms[roomName].players).forEach(id => {
-		if(!round.times[id]) {
-			round.times[id] = 10000;
-		}
-		debug("Round timed out after 10sec for: %s,", id);
-	});
-
-	// Update all players with scoreboard
-	if(!rooms[roomName].winner) {
-		io.in(roomName).emit('scoreboard-update', round.times);
-	}
-
-	// Handle winner if both player have clicked virus icon
-	if(Object.values(round.times).length === 2) {
-		handleRoundWinner(roomName);
-	}
-}
-
-/**
- * Get the current round being played in the room
- */
-function getCurrentRoundNr(roomName) {
-	return rooms[roomName].rounds.length - 1;
-}
-
-/**
- * Get the round object itself with roomName and roundNr
- */
-function getRound(roomName, roundNr) {
-	return rooms[roomName].rounds[roundNr];
-}
-
-/**
- * Handle user clicking virus
- */
-function handleClickVirus(data) {
-	const { clickTime, roomName } = data;
-	const roundNr = getCurrentRoundNr(roomName);
-	const round = getRound(roomName, roundNr);
-	const time = clickTime - round.startTime;
-
-	debug("Virus clicked after %s milliseconds by user '%s'", clickTime - round.startTime, this.username);
-
-	// Save time it took to click vurs and update all rooms 
-	round.times[this.id] = time;
-	if(!rooms[roomName].winner) {
-		io.in(roomName).emit('scoreboard-update', round.times);
-	}
-
-	// Handle winner if both player have clicked virus icon
-	if(Object.values(round.times).length === 2) {
-		clearRoundCounter(roomName, roundNr);
-		if(!rooms[roomName].winner) {
-			handleRoundWinner(roomName);
-		}
-	}
-}
-
-/**
- * Handle round winner
- */
-function handleRoundWinner(roomName) {
-	const roundNr = getCurrentRoundNr(roomName);
-	const round = getRound(roomName, roundNr);
-
-	// Calc lowest time and save it to data
-	// Null if a draw occurred
-	if(Object.values(round.times)[0] === Object.values(round.times)[1]) {
-		round.winner = null;
-	} else if(Object.values(round.times)[0] < Object.values(round.times)[1]) {
-		const playerId = Object.keys(round.times)[0];
-		round.winner = playerId;
-		rooms[roomName].scores[playerId]++;
-	} else {
-		const playerId = Object.keys(round.times)[1];
-		round.winner = playerId;
-		rooms[roomName].scores[playerId]++;
-	}
-
-	// Update player with the winner and the scores
-	if(!rooms[roomName].winner) {
-		io.in(roomName).emit('round-winner', { winner: round.winner, scores: rooms[roomName].scores });
-	}
-
-	// Check if it was the final round
-	if(roundNr + 1 === 2) {
-		// Calc most wins and send to players
-		let winner;
-		if(Object.values(rooms[roomName].scores)[0] === Object.values(rooms[roomName].scores)[1]) {
-			winner = "Draw";
-		} else if(Object.values(rooms[roomName].scores)[0] > Object.values(rooms[roomName].scores)[1]) {
-			winner = Object.keys(rooms[roomName].scores)[0];
-		} else {
-			winner = Object.keys(rooms[roomName].scores)[1];
-		}
-		
-		// Set winner and inform players
-		if(!rooms[roomName].winner) {
-			rooms[roomName].winner = winner;
-			io.in(roomName).emit('winner', winner);
-		}
-		return;
-	}
-
-	// Delay 2 seconds before starting next round
-	let sec = 0;
-	const delayId = setInterval(() => {
-		if(sec === 2) {
-			clearInterval(delayId);
-			if(!rooms[roomName].winner) {
-				startNewRound({ roomName, countdown: 2 });
-			}
-		}
-		sec++;
-	}, 1000);
 }
 
 /**
@@ -322,19 +317,23 @@ function surrenderGame(room, id) {
 }
 
 /**
- * Handle user disconnecting
+ * Validate username
+ * Return false if no error
  */
-function handleUserDisconnect() {
-    debug(`User: '%s' with socket %s disconnected`, this.username, this.id);
-	
-	// Find rooms player disconnected from
-	const disconnectedRoom = rooms.find(room => room.players.hasOwnProperty(this.id));
+function validateUsername(username) {
+	let error = false;
+	let usernameRegEx = /^[a-z0-9]+$/i;
 
-	// Surrender games in rooms and delete player from waiting for opponent
-	delete waitingForOpponent[this.id];
-	if(disconnectedRoom && ! disconnectedRoom.winner) {
-		surrenderGame(disconnectedRoom, this.id);
-	}
+    if (username == "") {
+        error = "Please enter a username";
+    } else if ( (username.length < 2) || (username.length > 10) ) {
+        error = "Username must have 2-10 characters";
+    } else if ( !usernameRegEx.test(username) ) {
+        error = "Invalid username, use only letters and numbers";
+    } else {
+        error = "";
+    }
+    return error;
 }
 
 module.exports = function(socket) {
@@ -342,8 +341,7 @@ module.exports = function(socket) {
 	io = this;
 	debug(`Client ${socket.id} connected!`);
 
+	socket.on('click-virus', handleClickVirus);
 	socket.on('disconnect', handleUserDisconnect);
 	socket.on('user-register', handleUserRegistration);
-
-	socket.on('click-virus', handleClickVirus);
 }
