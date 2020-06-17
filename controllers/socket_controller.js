@@ -172,7 +172,7 @@ function handleUserDisconnect() {
 	const disconnectedRoom = rooms.find(room => room.players.hasOwnProperty(this.id));
 
 	// Surrender games in rooms and delete player from waiting for opponent
-	delete waitingForOpponent[this.id];
+	waitingForOpponent = waitingForOpponent.filter(socket => socket.id !== this.id)
 	if(disconnectedRoom && ! disconnectedRoom.winner) {
 		surrenderGame(disconnectedRoom, this.id);
 	}
@@ -324,7 +324,7 @@ function validateUsername(username) {
 	let error = false;
 	let usernameRegEx = /^[a-z0-9]+$/i;
 
-    if (username == "") {
+    if (!username) {
         error = "Please enter a username";
     } else if ( (username.length < 2) || (username.length > 10) ) {
         error = "Username must have 2-10 characters";
