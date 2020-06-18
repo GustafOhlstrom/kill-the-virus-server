@@ -7,7 +7,7 @@ let io = null;
 
 let waitingForOpponent = [];
 
-const rooms = [
+let rooms = [
 	// {
 	// 	name: 1,
 	// 	players: {},
@@ -39,6 +39,24 @@ function clearRoundCounter(roomName, roundNr) {
 }
 
 /**
+ * Find new opponent for user to play against
+ */
+function findNewOpponent(username, callback) {
+    debug("User '%s' looking for new opponent", username);
+	
+	// Add user to wainting for opponent
+	waitingForOpponent.push(this);
+
+	// Callback indicating registration to client
+	callback({ id: this.id, name: username });
+    
+	// Check if two players are connected and start a new game
+	if(Object.keys(waitingForOpponent).length >= 2) {
+		startNewGame();
+	}
+}
+
+/**
  * Get the current round being played in the room
  */
 function getCurrentRoundNr(roomName) {
@@ -63,7 +81,7 @@ function handleClickVirus(data) {
 
 	debug("Virus clicked after %s milliseconds by user '%s'", clickTime - round.startTime, this.username);
 
-	// Save time it took to click vurs and update all rooms 
+	// Save time it took to click virus and update all rooms 
 	round.times[this.id] = time;
 	if(!rooms[roomName].winner) {
 		io.in(roomName).emit('scoreboard-update', round.times);
@@ -130,7 +148,7 @@ function handleRoundWinner(roomName) {
 	}
 
 	// Check if it was the final round
-	if(roundNr + 1 === 2) {
+	if(roundNr + 1 === 10) {
 		// Calc most wins and send to players
 		let winner;
 		if(Object.values(rooms[roomName].scores)[0] === Object.values(rooms[roomName].scores)[1]) {
@@ -155,7 +173,7 @@ function handleRoundWinner(roomName) {
 		if(sec === 2) {
 			clearInterval(delayId);
 			if(!rooms[roomName].winner) {
-				startNewRound({ roomName, countdown: 2 });
+				startNewRound({ roomName, countdown: 3 });
 			}
 		}
 		sec++;
@@ -209,6 +227,9 @@ function handleUserRegistration(username, callback) {
  * Start new game with private roomName
  */
 function startNewGame() {
+	// Remove finnished games
+	rooms = rooms.filter(room => !room.winner);
+
 	const roomName = rooms.length
 
 	// Save new roomName with base data
@@ -237,7 +258,7 @@ function startNewGame() {
 
 	// Start first round
 	if(!rooms[roomName].winner) {
-		startNewRound({ roomName, countdown: 2 });
+		startNewRound({ roomName, countdown: 5 });
 	}
 }
 
@@ -292,7 +313,7 @@ function startNewRound(data) {
 				});
 			}
 		}
-		// Conced round if no response after 10seconds 
+		// Conced round if no response after 10 seconds 
 		else if(counter === randomTarget + countdown + 10) {
 			clearRoundCounter(roomName, roundNr);
 			if(!rooms[roomName].winner) {
@@ -329,7 +350,7 @@ function validateUsername(username) {
     } else if ( (username.length < 2) || (username.length > 10) ) {
         error = "Username must have 2-10 characters";
     } else if ( !usernameRegEx.test(username) ) {
-        error = "Invalid username, use only letters and numbers";
+        error = "Invalid username, use only english letters and numbers";
     } else {
         error = "";
     }
@@ -343,5 +364,6 @@ module.exports = function(socket) {
 
 	socket.on('click-virus', handleClickVirus);
 	socket.on('disconnect', handleUserDisconnect);
+	socket.on('find-new-opponent', findNewOpponent);
 	socket.on('user-register', handleUserRegistration);
 }
