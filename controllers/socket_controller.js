@@ -187,7 +187,7 @@ function handleUserDisconnect() {
     debug(`User: '%s' with socket %s disconnected`, this.username, this.id);
 	
 	// Find rooms player disconnected from
-	const disconnectedRoom = rooms.find(room => room.players.hasOwnProperty(this.id));
+	const disconnectedRoom = rooms.slice().reverse().find(room => room.players.hasOwnProperty(this.id));
 
 	// Surrender games in rooms and delete player from waiting for opponent
 	waitingForOpponent = waitingForOpponent.filter(socket => socket.id !== this.id)
@@ -227,9 +227,6 @@ function handleUserRegistration(username, callback) {
  * Start new game with private roomName
  */
 function startNewGame() {
-	// Remove finnished games
-	rooms = rooms.filter(room => !room.winner);
-
 	const roomName = rooms.length
 
 	// Save new roomName with base data
