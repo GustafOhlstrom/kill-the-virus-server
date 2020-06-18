@@ -7,12 +7,12 @@ Project by Gustaf Ohlström
 
 ### Tech
 
-A [Node.js](https://node.js.org/) base project built with [Express](https://expressjs.com/) and communcates with the [client](https://github.com/GustafOhlstrom/kill-the-virus-client) using Socket.io.
+A [Node.js](https://node.js.org/) base project built with [Express](https://expressjs.com/) and communcates with the [client](https://github.com/GustafOhlstrom/kill-the-virus-client) using [Socket.io](https://socket.io/).
 
 All Tech:
 * [Node.js](https://node.js.org/)
 * [Express](https://expressjs.com/)
-* Socket.io
+* [Socket.io](https://socket.io/)
 * [Cross-env](https://www.npmjs.com/package/cross-env)
 * [Debug](https://www.npmjs.com/package/debug)
 * [Dotenv](https://www.npmjs.com/package/dotenv)
